@@ -1,6 +1,11 @@
 [profile.default]
 src = "src"
-out = "out"
-libs = ["lib"]
+test = "test"
+libs = ["lib", "node_modules"]
 
-# See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
+# Ensure remappings for node_modules
+remappings = [
+    "@openzeppelin/=/Users/prajitsengupta/Desktop/Blockchain/Blockchain-HR-Management-SmartContract/HumanResources/node_modules/@openzeppelin/",
+    "@chainlink/=/Users/prajitsengupta/Desktop/Blockchain/Blockchain-HR-Management-SmartContract/HumanResources/node_modules/@chainlink/",
+    "@uniswap/=/Users/prajitsengupta/Desktop/Blockchain/Blockchain-HR-Management-SmartContract/HumanResources/node_modules/@uniswap/"
+]

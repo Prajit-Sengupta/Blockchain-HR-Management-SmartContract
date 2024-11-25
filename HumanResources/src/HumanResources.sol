@@ -1,14 +1,20 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
-import {IHumanResources} from "HumanResources/src/IHumanResources.sol";
+import {IHumanResources} from "../src/IHumanResources.sol";
 
-import "node_modules/@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
-import "node_modules/@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol";
-import "node_modules/@openzeppelin/contracts/token/ERC20/IERC20.sol";
+// import "../../node_modules/@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
+// import "../../node_modules/@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol";
+// import "../../node_modules/@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
+import "@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol";
+
+
 
 contract HumanResources is IHumanResources{
 
-address public immutable  hrManager;
+address public immutable  hrManagerAddr;
 
 uint256 public constant DECIMALS = 18;  // Scaling factor
 uint256 public constant SCALING_FACTOR = 10**DECIMALS;
@@ -27,7 +33,7 @@ IERC20 private usdc;
 
 constructor( ){
 
-    hrManager == msg.sender;
+    hrManagerAddr == msg.sender;
     priceFeed = AggregatorV3Interface(CHAINLINK_ORACLE);
     swapRouter = ISwapRouter(UNISWAP_ROUTER);
     usdc = IERC20(USDC_ADDRESS);
@@ -35,7 +41,7 @@ constructor( ){
 }
 
 modifier onlyHRManager(){
-    if (msg.sender != hrManager){
+    if (msg.sender != hrManagerAddr){
         revert NotAuthorized();
     }
     _;
@@ -60,7 +66,35 @@ modifier onlyEmployee() {
 }
 
 function hrManager() external view returns (address){
-    return hrManager;
+    return hrManagerAddr;
+}
+
+
+function salaryAvailable(address employee) public view returns (uint256){
+    Employee storage emp = employees[employee];
+    uint256 timeWorked;
+
+    if (emp.employedSince == 0) {
+        return 0;
+    }
+    if (emp.terminatedAt == 0) {
+        // The employee is active and currently working
+        timeWorked = block.timestamp - emp.employedSince;
+    } else {
+        // The employee was terminated; calculate until termination time
+        timeWorked = emp.terminatedAt - emp.employedSince;
+    }
+
+    uint256 accruedSalary = (emp.weeklyUsdSalary * timeWorked) / (7 days);
+    uint256 totalSalary = accruedSalary + emp.unclaimedSalary;
+
+    if (emp.isETH) {
+        // If employee prefers ETH, keep the amount in 18 decimals
+        return totalSalary;
+    } else {
+        // If employee prefers USDC, scale it to 6 decimals
+        return totalSalary / (10 ** 12);
+    }
 }
 
 function registerEmployee(address employee, uint256 weeklyUsdSalary) external onlyHRManager{
@@ -73,7 +107,7 @@ function registerEmployee(address employee, uint256 weeklyUsdSalary) external on
             
             //Unclaimed salary while registering
             uint256 unclaimed = salaryAvailable(employee);
-            employee.unclaimedSalary += unclaimed;
+            employees[employee].unclaimedSalary += unclaimed;
 
             employees[employee].employedSince = block.timestamp;  // Set employment start to current time
             employees[employee].terminatedAt = 0;                 // Set terminatedAt to zero to indicate active status again
@@ -83,7 +117,8 @@ function registerEmployee(address employee, uint256 weeklyUsdSalary) external on
                 weeklyUsdSalary: weeklyUsdSalary * SCALING_FACTOR,
                 employedSince: block.timestamp,
                 terminatedAt: 0,
-                isEth: false // Default to USDC salary
+                isETH: false, // Default to USDC salary
+                unclaimedSalary: 0
             });
              }
 
@@ -155,13 +190,12 @@ function swapUSDCtoETH(uint256 usdcAmount) internal returns (uint256 ethReceived
 }
 
 
-function withdrawSalary() external nonReentrant{
+function withdrawSalary() public onlyEmployee() onlyHRManager(){
     // Validate that the caller is either an active employee or the HR manager
+    //nonReentrant - later add it
     Employee storage emp = employees[msg.sender];
-    
-    // Ensure the caller is either an employee or HR Manager
-    require(msg.sender == emp.employeeAddress || msg.sender == hrManager, "Not authorized");
 
+    
     // Fetch the available salary for the employee
     uint256 availableSalary = salaryAvailable(msg.sender);
     
@@ -169,7 +203,7 @@ function withdrawSalary() external nonReentrant{
     emp.unclaimedSalary = 0;
 
     // Check if the employee prefers ETH or USDC
-    if (emp.isEth) {
+    if (emp.isETH) {
         // If employee prefers ETH, swap USDC for ETH and transfer
         uint256 ethAmount = swapUSDCtoETH(availableSalary);
 
@@ -189,32 +223,6 @@ function withdrawSalary() external nonReentrant{
 }
 
 
-function salaryAvailable(address employee) external view returns (uint256){
-    Employee storage emp = employees[employee];
-    uint256 timeWorked;
-
-    if (emp.employedSince == 0) {
-        return 0;
-    }
-    if (emp.terminatedAt == 0) {
-        // The employee is active and currently working
-        timeWorked = block.timestamp - emp.employedSince;
-    } else {
-        // The employee was terminated; calculate until termination time
-        timeWorked = emp.terminatedAt - emp.employedSince;
-    }
-
-    uint256 accruedSalary = (emp.weeklyUsdSalary * timeWorked) / (7 days);
-    uint256 totalSalary = accruedSalary + emp.unclaimedSalary;
-
-    if (emp.isEth) {
-        // If employee prefers ETH, keep the amount in 18 decimals
-        return totalSalary;
-    } else {
-        // If employee prefers USDC, scale it to 6 decimals
-        return totalSalary / (10 ** 12);
-    }
-}
 
 function switchCurrency() external {
     // Ensure the employee is registered and active
@@ -225,10 +233,10 @@ function switchCurrency() external {
     withdrawSalary();
 
     // Step 2: Toggle the preferred currency
-    emp.isEth = !emp.isEth;
+    emp.isETH = !emp.isETH;
 
     // Step 3: Emit the CurrencySwitched event
-    emit CurrencySwitched(msg.sender, emp.isEth);
+    emit CurrencySwitched(msg.sender, emp.isETH);
 }
 
 
