@@ -17,8 +17,7 @@ contract HumanResourcesScript is Script {
         vm.startBroadcast();
 
         // Deploy the HumanResources contract (assuming the constructor requires an HR manager address)
-        address hrManagerAddress = msg.sender;  // Replace with a valid address
-        humanResources = new HumanResources(hrManagerAddress);
+        humanResources = new HumanResources();
 
         // Stop broadcasting
         vm.stopBroadcast();

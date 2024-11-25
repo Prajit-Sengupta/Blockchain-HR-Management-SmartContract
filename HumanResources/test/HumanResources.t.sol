@@ -33,17 +33,11 @@ contract HumanResourcesTest is Test {
         weth = new MockERC20("Wrapped ETH", "WETH", 18);
 
         // Deploy mock Chainlink Oracle and Uniswap Router
-        chainlinkOracle = new MockV3Aggregator();
+        chainlinkOracle = new MockV3Aggregator(18, 2000 * 10 ** 8);
         uniswapRouter = new UniswapRouterMock();
 
         // Deploy HumanResources contract
-        hrContract = new HumanResources(
-            hrManager,
-            address(usdc),
-            address(weth),
-            address(uniswapRouter),
-            address(chainlinkOracle)
-        );
+        hrContract = new HumanResources();
 
         // Mint and fund tokens
         usdc.mint(hrManager, 100000 * 10 ** 6);  // Mint USDC for HR manager
