@@ -9,7 +9,7 @@ import {IHumanResources} from "../src/IHumanResources.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
 import "@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol";
-
+import "forge-std/console.sol";
 
 
 contract HumanResources is IHumanResources{
@@ -33,7 +33,7 @@ IERC20 private usdc;
 
 constructor( ){
 
-    hrManagerAddr == msg.sender;
+    hrManagerAddr = msg.sender;
     priceFeed = AggregatorV3Interface(CHAINLINK_ORACLE);
     swapRouter = ISwapRouter(UNISWAP_ROUTER);
     usdc = IERC20(USDC_ADDRESS);
@@ -46,8 +46,6 @@ modifier onlyHRManager(){
     }
     _;
 }
-
-
 
 mapping(address => Employee) public employees;
 struct Employee {
@@ -109,6 +107,7 @@ function registerEmployee(address employee, uint256 weeklyUsdSalary) external on
             uint256 unclaimed = salaryAvailable(employee);
             employees[employee].unclaimedSalary += unclaimed;
 
+            employees[employee].weeklyUsdSalary = weeklyUsdSalary * SCALING_FACTOR;
             employees[employee].employedSince = block.timestamp;  // Set employment start to current time
             employees[employee].terminatedAt = 0;                 // Set terminatedAt to zero to indicate active status again
         } else {
@@ -176,7 +175,7 @@ function swapUSDCtoETH(uint256 usdcAmount) internal returns (uint256 ethReceived
     ISwapRouter.ExactInputSingleParams memory params = ISwapRouter.ExactInputSingleParams({
         tokenIn: USDC_ADDRESS,
         tokenOut: WETH_ADDRESS,
-        fee: 3000, // Pool fee
+        fee: 500, // Pool fee
         recipient: address(this),
         deadline: block.timestamp + 15,
         amountIn: usdcAmount,
@@ -190,7 +189,7 @@ function swapUSDCtoETH(uint256 usdcAmount) internal returns (uint256 ethReceived
 }
 
 
-function withdrawSalary() public onlyEmployee() onlyHRManager(){
+function withdrawSalary() public onlyEmployee() {
     // Validate that the caller is either an active employee or the HR manager
     //nonReentrant - later add it
     Employee storage emp = employees[msg.sender];
@@ -221,7 +220,6 @@ function withdrawSalary() public onlyEmployee() onlyHRManager(){
         emit SalaryWithdrawn(msg.sender, false, availableSalary);
     }
 }
-
 
 
 function switchCurrency() external {
