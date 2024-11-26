@@ -2,15 +2,10 @@
 pragma solidity ^0.8.13;
 import {IHumanResources} from "../src/IHumanResources.sol";
 
-// import "../../node_modules/@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
-// import "../../node_modules/@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol";
-// import "../../node_modules/@openzeppelin/contracts/token/ERC20/IERC20.sol";
-
-import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
 import "@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol";
-import "forge-std/console.sol";
-
+import "../src/IWETH.sol";
 
 contract HumanResources is IHumanResources{
 
@@ -52,6 +47,7 @@ struct Employee {
     uint256 weeklyUsdSalary;
     uint256 employedSince;
     uint256 terminatedAt;
+    uint256 lastWithdrawnAt;
     uint256 unclaimedSalary;
     bool isETH;
 }
@@ -67,33 +63,58 @@ function hrManager() external view returns (address){
     return hrManagerAddr;
 }
 
+function calculateSalary(address employee) internal view returns (uint256) {
+        Employee storage emp = employees[employee];
+        uint256 timeWorked;
+        uint256 totalSalary;
 
-function salaryAvailable(address employee) public view returns (uint256){
+        if (emp.employedSince == 0) {
+            return 0;
+        }
+
+        if (emp.terminatedAt == 0) {
+            // Employee is active, calculate up to current time
+            timeWorked = block.timestamp - emp.lastWithdrawnAt;
+            uint256 accruedSalary = (emp.weeklyUsdSalary * timeWorked) / (7 days);
+            totalSalary = accruedSalary + emp.unclaimedSalary;
+        } else {
+            totalSalary = emp.unclaimedSalary;
+        }
+        return totalSalary;
+}
+function salaryAvailable(address employee) public view returns (uint256) {
     Employee storage emp = employees[employee];
-    uint256 timeWorked;
-
-    if (emp.employedSince == 0) {
-        return 0;
-    }
-    if (emp.terminatedAt == 0) {
-        // The employee is active and currently working
-        timeWorked = block.timestamp - emp.employedSince;
-    } else {
-        // The employee was terminated; calculate until termination time
-        timeWorked = emp.terminatedAt - emp.employedSince;
-    }
-
-    uint256 accruedSalary = (emp.weeklyUsdSalary * timeWorked) / (7 days);
-    uint256 totalSalary = accruedSalary + emp.unclaimedSalary;
+    uint256 totalSalary = calculateSalary(employee);
 
     if (emp.isETH) {
-        // If employee prefers ETH, keep the amount in 18 decimals
-        return totalSalary;
+        // Get ETH price in USD with 18 decimals
+        uint256 ethPrice = getEthPrice();
+
+        // Convert the total salary from USD to ETH
+        // totalSalary is in USD with 18 decimals, ethPrice is in USD with 18 decimals
+        uint256 expectedEth = (totalSalary * 1e18) / ethPrice;
+
+        return expectedEth;
     } else {
         // If employee prefers USDC, scale it to 6 decimals
         return totalSalary / (10 ** 12);
     }
 }
+
+// function salaryAvailable(address employee) public view returns (uint256){
+//         Employee storage emp = employees[employee];
+//         uint256 totalSalary = calculateSalary(employee);
+//         if (emp.isETH) {
+//             uint256 ethPrice = getEthPrice();
+//             uint256 usdcAmountWith18Decimals = totalSalary; 
+//             uint256 adjustedEthPrice = ethPrice * 1e10;
+//             uint256 expectedEth = (usdcAmountWith18Decimals) / adjustedEthPrice;
+//             return expectedEth;
+//         } else {
+//             // If employee prefers USDC, scale it to 6 decimals
+//             return totalSalary / (10 ** 12);
+//         }
+// }
 
 function registerEmployee(address employee, uint256 weeklyUsdSalary) external onlyHRManager{
 
@@ -102,22 +123,20 @@ function registerEmployee(address employee, uint256 weeklyUsdSalary) external on
         }
 
         if (employees[employee].employedSince != 0 && employees[employee].terminatedAt != 0) {
-            
-            //Unclaimed salary while registering
-            uint256 unclaimed = salaryAvailable(employee);
-            employees[employee].unclaimedSalary += unclaimed;
-
-            employees[employee].weeklyUsdSalary = weeklyUsdSalary * SCALING_FACTOR;
-            employees[employee].employedSince = block.timestamp;  // Set employment start to current time
-            employees[employee].terminatedAt = 0;                 // Set terminatedAt to zero to indicate active status again
+            employees[employee].weeklyUsdSalary = weeklyUsdSalary;
+            employees[employee].employedSince = block.timestamp;
+            employees[employee].lastWithdrawnAt = block.timestamp;
+            employees[employee].terminatedAt = 0;
+            employees[employee].isETH = false;   
+                          // Set terminatedAt to zero to indicate active status again
         } else {
-
             employees[employee] = Employee({
-                weeklyUsdSalary: weeklyUsdSalary * SCALING_FACTOR,
+                weeklyUsdSalary: weeklyUsdSalary,
                 employedSince: block.timestamp,
                 terminatedAt: 0,
                 isETH: false, // Default to USDC salary
-                unclaimedSalary: 0
+                unclaimedSalary: 0,
+                lastWithdrawnAt: block.timestamp
             });
              }
 
@@ -129,9 +148,12 @@ function registerEmployee(address employee, uint256 weeklyUsdSalary) external on
 function terminateEmployee(address employee) external onlyHRManager{
     if (employees[employee].employedSince == 0 || employees[employee].terminatedAt != 0) {
             revert EmployeeNotRegistered();
-        }
+    }
 
     employees[employee].terminatedAt = block.timestamp;
+    uint256 timeWorked = block.timestamp - employees[employee].lastWithdrawnAt;
+    uint256 unclaimed = (employees[employee].weeklyUsdSalary * timeWorked) / (7 days);
+    employees[employee].unclaimedSalary = unclaimed;
     activeEmployeeCount--;
     emit EmployeeTerminated(employee);
 
@@ -157,25 +179,56 @@ function getActiveEmployeeCount() external view returns (uint256){
 
 
 function getEthPrice() public view returns (uint256) {
-    (, int256 price,,,) = priceFeed.latestRoundData();
-    require(price > 0, "Invalid price data");
-    return uint256(price) * 1e10; // Convert to 18 decimals
+        (, int256 price,,,) = priceFeed.latestRoundData();
+        require(price > 0, "Invalid price data");
+        uint256 feedDecimals = priceFeed.decimals();
+        return uint256(price) * 10 ** (18 - feedDecimals); 
 }
 
+// function swapUSDCtoETH(uint256 usdcAmount) internal returns (uint256 ethReceived) {
+//         usdc.approve(UNISWAP_ROUTER, usdcAmount);
+//         // Get ETH price in USD with 18 decimals
+//         uint256 ethPrice = getEthPrice();
+//         uint256 totalSalary = usdcAmount*1e12;
+//         // Convert the total salary from USD to ETH
+//         // totalSalary is in USD with 18 decimals, ethPrice is in USD with 18 decimals
+//         uint256 expectedEth = (totalSalary * 1e18) / ethPrice;
+//         uint256 minEthOut = (expectedEth * 98) / 100;
+
+//         ISwapRouter.ExactInputSingleParams memory params = ISwapRouter.ExactInputSingleParams({
+//             tokenIn: USDC_ADDRESS,
+//             tokenOut: WETH_ADDRESS,
+//             fee: 500,
+//             recipient: address(this),
+//             deadline: block.timestamp + 15,
+//             amountIn: usdcAmount,
+//             amountOutMinimum: minEthOut,
+//             sqrtPriceLimitX96: 0
+//         });
+
+//         ethReceived = swapRouter.exactInputSingle(params);
+//         require(ethReceived >= minEthOut, "Insufficient ETH received");
+// }
 function swapUSDCtoETH(uint256 usdcAmount) internal returns (uint256 ethReceived) {
-    // Approve USDC for the Uniswap router
+    // Approve the Uniswap Router to spend the specified USDC amount
     usdc.approve(UNISWAP_ROUTER, usdcAmount);
 
-    // Minimum ETH amount based on the price feed and 2% slippage tolerance
-    uint256 ethPrice = getEthPrice(); // ETH/USD
-    uint256 expectedEth = (usdcAmount * 1e18) / ethPrice; // USDC to ETH conversion
-    uint256 minEthOut = (expectedEth * 98) / 100; // Allow 2% slippage
+    // Get the current ETH price in USD with 18 decimals
+    uint256 ethPrice = getEthPrice();
 
-    // Execute the swap
+    // Convert the USDC amount from 6 decimals to 18 decimals
+    uint256 usdcAmountWith18Decimals = usdcAmount * 1e12;
+
+    // Calculate the amount of ETH that can be obtained from the given USDC
+    // totalSalary is in USD with 18 decimals, ethPrice is in USD with 18 decimals
+    uint256 expectedEth = (usdcAmountWith18Decimals * 1e18) / ethPrice;
+    uint256 minEthOut = (expectedEth * 98) / 100; // Allow for slippage of 2%
+
+    // Set up parameters for the Uniswap swap
     ISwapRouter.ExactInputSingleParams memory params = ISwapRouter.ExactInputSingleParams({
         tokenIn: USDC_ADDRESS,
         tokenOut: WETH_ADDRESS,
-        fee: 500, // Pool fee
+        fee: 500,
         recipient: address(this),
         deadline: block.timestamp + 15,
         amountIn: usdcAmount,
@@ -183,42 +236,40 @@ function swapUSDCtoETH(uint256 usdcAmount) internal returns (uint256 ethReceived
         sqrtPriceLimitX96: 0
     });
 
-    ethReceived = swapRouter.exactInputSingle(params);
+    // Perform the swap and get the amount of WETH received
+    uint256 wethReceived = swapRouter.exactInputSingle(params);
+    require(wethReceived >= minEthOut, "Insufficient ETH received");
 
-    require(ethReceived >= minEthOut, "Insufficient ETH received");
+    // Check if the contract has enough WETH balance
+    uint256 wethBalance = IWETH(WETH_ADDRESS).balanceOf(address(this));
+    require(wethBalance >= wethReceived, "Insufficient WETH balance for withdrawal");
+
+    // Unwrap WETH to get ETH
+    IWETH(WETH_ADDRESS).withdraw(wethReceived);
+
+    ethReceived = wethReceived;
 }
 
-
 function withdrawSalary() public onlyEmployee() {
-    // Validate that the caller is either an active employee or the HR manager
-    //nonReentrant - later add it
     Employee storage emp = employees[msg.sender];
-
     
     // Fetch the available salary for the employee
-    uint256 availableSalary = salaryAvailable(msg.sender);
-    
-    // Reset the unclaimed salary after it is withdrawn
-    emp.unclaimedSalary = 0;
-
+    uint256 availableSalary = calculateSalary(msg.sender);
+    require(availableSalary >= 0, "No salary available for withdrawal");
     // Check if the employee prefers ETH or USDC
     if (emp.isETH) {
-        // If employee prefers ETH, swap USDC for ETH and transfer
-        uint256 ethAmount = swapUSDCtoETH(availableSalary);
-
-        // Transfer the ETH to the employee
+            // If employee prefers ETH, swap USDC for ETH and transfer
+        uint256 ethAmount = swapUSDCtoETH(availableSalary/(10**12));
         (bool success, ) = msg.sender.call{value: ethAmount}("");
-        require(success, "ETH transfer failed");
 
-        // Emit event for ETH withdrawal
         emit SalaryWithdrawn(msg.sender, true, ethAmount);
     } else {
-        // If employee prefers USDC, transfer the amount in USDC
-        require(usdc.transfer(msg.sender, availableSalary), "USDC transfer failed");
-
-        // Emit event for USDC withdrawal
-        emit SalaryWithdrawn(msg.sender, false, availableSalary);
+            // If employee prefers USDC, transfer the amount in USDC
+            require(usdc.transfer(msg.sender, availableSalary / (10 ** 12)), "USDC transfer failed");
+            emit SalaryWithdrawn(msg.sender, false, availableSalary / (10 ** 12));
     }
+    emp.lastWithdrawnAt = block.timestamp;
+    emp.unclaimedSalary = 0;
 }
 
 
@@ -236,12 +287,6 @@ function switchCurrency() external {
     // Step 3: Emit the CurrencySwitched event
     emit CurrencySwitched(msg.sender, emp.isETH);
 }
+receive() external payable {}
 
-
-
-
-
-   
-//Add condition where no to emit when currency to withddarw is zero
-// What functioms its importing 
 }
