@@ -168,7 +168,6 @@ function salaryAvailable(address employee) public view returns (uint256) {
     }
 }
 
-
 function swapUSDCtoETH(uint256 usdcAmount) internal returns (uint256 ethReceived) {
     // Approve the Uniswap Router to spend the specified USDC amount
     usdc.approve(UNISWAP_ROUTER, usdcAmount);
@@ -203,7 +202,6 @@ function swapUSDCtoETH(uint256 usdcAmount) internal returns (uint256 ethReceived
 
     // Unwrap WETH to get ETH
     IWETH(WETH_ADDRESS).withdraw(wethReceived);
-
     ethReceived = wethReceived;
 }
 
