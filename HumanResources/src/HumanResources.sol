@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 import {IHumanResources} from "../src/IHumanResources.sol";
-
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
 import "@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol";
@@ -11,9 +10,6 @@ import "../src/IWETH.sol";
 contract HumanResources is IHumanResources, ReentrancyGuard{
 
 address public immutable  hrManagerAddr;
-
-uint256 public constant DECIMALS = 18;  // Scaling factor
-uint256 public constant SCALING_FACTOR = 10**DECIMALS;
 
 uint256 public activeEmployeeCount;
 
@@ -80,7 +76,7 @@ function registerEmployee(address employee, uint256 weeklyUsdSalary) external on
                 weeklyUsdSalary: weeklyUsdSalary,
                 employedSince: block.timestamp,
                 terminatedAt: 0,
-                isETH: false, // Default to USDC salary
+                isETH: false,                // Default to USDC salary
                 unclaimedSalary: 0,
                 lastWithdrawnAt: block.timestamp
             });
@@ -89,7 +85,6 @@ function registerEmployee(address employee, uint256 weeklyUsdSalary) external on
         activeEmployeeCount++;
         emit EmployeeRegistered(employee, weeklyUsdSalary);
   }
-
 
 function terminateEmployee(address employee) external onlyHRManager{
     if (employees[employee].employedSince == 0 || employees[employee].terminatedAt != 0) {
@@ -122,7 +117,6 @@ function getActiveEmployeeCount() external view returns (uint256){
             return (emp.weeklyUsdSalary, emp.employedSince, emp.terminatedAt);
         }
 
-
 function getEthPrice() public view returns (uint256) {
         (, int256 price,,,) = priceFeed.latestRoundData();
         require(price > 0, "Invalid price data");
@@ -140,7 +134,6 @@ function calculateSalary(address employee) internal view returns (uint256) {
         }
 
         if (emp.terminatedAt == 0) {
-            // Employee is active, calculate up to current time
             timeWorked = block.timestamp - emp.lastWithdrawnAt;
             uint256 accruedSalary = (emp.weeklyUsdSalary * timeWorked) / (7 days);
             totalSalary = accruedSalary + emp.unclaimedSalary;
@@ -154,33 +147,27 @@ function salaryAvailable(address employee) public view returns (uint256) {
     uint256 totalSalary = calculateSalary(employee);
 
     if (emp.isETH) {
-        // Get ETH price in USD with 18 decimals
+        // Get ETH price in USD 
         uint256 ethPrice = getEthPrice();
 
-        // Convert the total salary from USD to ETH
-        // totalSalary is in USD with 18 decimals, ethPrice is in USD with 18 decimals
         uint256 expectedEth = (totalSalary * 1e18) / ethPrice;
 
         return expectedEth;
     } else {
-        // If employee prefers USDC, scale it to 6 decimals
+        // USDC, scaled to 6 decimals
         return totalSalary / (10 ** 12);
     }
 }
 
 function swapUSDCtoETH(uint256 usdcAmount) internal returns (uint256 ethReceived) {
-    // Approve the Uniswap Router to spend the specified USDC amount
     usdc.approve(UNISWAP_ROUTER, usdcAmount);
 
-    // Get the current ETH price in USD with 18 decimals
     uint256 ethPrice = getEthPrice();
 
-    // Convert the USDC amount from 6 decimals to 18 decimals
     uint256 usdcAmountWith18Decimals = usdcAmount * 1e12;
     uint256 expectedEth = (usdcAmountWith18Decimals * 1e18) / ethPrice;
-    uint256 minEthOut = (expectedEth * 98) / 100; // Allow for slippage of 2%
+    uint256 minEthOut = (expectedEth * 98) / 100; // Slippage of 2%
 
-    // Set up parameters for the Uniswap swap
     ISwapRouter.ExactInputSingleParams memory params = ISwapRouter.ExactInputSingleParams({
         tokenIn: USDC_ADDRESS,
         tokenOut: WETH_ADDRESS,
@@ -192,11 +179,9 @@ function swapUSDCtoETH(uint256 usdcAmount) internal returns (uint256 ethReceived
         sqrtPriceLimitX96: 0
     });
 
-    // Perform the swap and get the amount of WETH received
     uint256 wethReceived = swapRouter.exactInputSingle(params);
     require(wethReceived >= minEthOut, "Insufficient ETH received");
 
-    // Check if the contract has enough WETH balance
     uint256 wethBalance = IWETH(WETH_ADDRESS).balanceOf(address(this));
     require(wethBalance >= wethReceived, "Insufficient WETH balance for withdrawal");
 
@@ -207,20 +192,23 @@ function swapUSDCtoETH(uint256 usdcAmount) internal returns (uint256 ethReceived
 
 function withdrawSalary() public nonReentrant{
     Employee storage emp = employees[msg.sender];
-    
-    // Fetch the available salary for the employee
+
+    //Should be registerd (Either Active or Terminated)
+     if (emp.employedSince == 0){
+        revert NotAuthorized();
+    }
+
     uint256 availableSalary = calculateSalary(msg.sender);
     require(availableSalary >= 0, "No salary available for withdrawal");
-    // Check if the employee prefers ETH or USDC
+
+    // To check if the employee prefers ETH or USDC
     if (emp.isETH) {
-        // If employee prefers ETH, swap USDC for ETH and transfer
         uint256 ethAmount = swapUSDCtoETH(availableSalary/(10**12));
         (bool success, ) = msg.sender.call{value: ethAmount}("");
         require(success, "ETH transfer failed");
 
         emit SalaryWithdrawn(msg.sender, emp.isETH, ethAmount);
     } else {
-        // If employee prefers USDC, transfer the amount in USDC
         require(usdc.transfer(msg.sender, availableSalary / (10 ** 12)), "USDC transfer failed");
         emit SalaryWithdrawn(msg.sender, emp.isETH, availableSalary / (10 ** 12));
     }
@@ -229,19 +217,13 @@ function withdrawSalary() public nonReentrant{
 }
 
 function switchCurrency() external onlyEmployee{
-    // Ensure the employee is registered and active
     Employee storage emp = employees[msg.sender];
     require(emp.employedSince != 0 && emp.terminatedAt==0, "Employee not registered");
-
-    // Step 1: Call withdrawSalary to withdraw the current accumulated salary
     withdrawSalary();
-
-    // Step 2: Toggle the preferred currency
     emp.isETH = !emp.isETH;
-
-    // Step 3: Emit the CurrencySwitched event
     emit CurrencySwitched(msg.sender, emp.isETH);
 }
+
 function getCurrencyPreference(address employee) external view returns (bool) {
     require(employees[employee].employedSince > 0, "Employee not registered");
     return employees[employee].isETH;
