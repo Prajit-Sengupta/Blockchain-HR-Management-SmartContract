@@ -90,7 +90,7 @@ For the purpose of this coursework, we assume that **1 USD = 1 USDC**.
   - **`swapUSDCtoETH(uint256 usdcAmount)`**: Uses the Uniswap Router to swap USDC for ETH. The function takes care of converting USDC to ETH, considering a 2% slippage tolerance, and unwraps WETH to obtain ETH.
 - **Slippage Protection**: The swap includes a minimum amount of ETH expected, set to be at least 98% of the calculated value to prevent front-running and excessive slippage.
 
-### Why Use IWETH?
+### IWETH
 - The Uniswap swap provides WETH (Wrapped ETH) instead of direct ETH. To ensure that employees receive native ETH when they request it, the contract uses `IWETH` to unwrap WETH into ETH. This allows for easier and more consistent interactions when paying employees who opt for ETH.
 
 ## Additional Function Descriptions
@@ -109,6 +109,4 @@ For the purpose of this coursework, we assume that **1 USD = 1 USDC**.
 
 ## Summary
 The `HumanResources` contract provides a complete HR payment solution on Optimism, enabling role-based access, flexible salary withdrawal in multiple currencies, and secure interaction with external DeFi protocols for swapping and price feeds. The integration with Chainlink ensures accurate pricing, and Uniswap allows seamless conversion of USDC to ETH, while security is maintained using OpenZeppelin's `ReentrancyGuard` and proper access control mechanisms.
-
-The contract ensures that the key components like salary calculation, Oracle integration, and AMM integration are implemented with robust security and quality standards.
 
