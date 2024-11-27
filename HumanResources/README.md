@@ -72,11 +72,24 @@ The `HumanResources` contract provides a human resources payment system where em
 ### Chainlink Oracle Integration
 - The contract integrates with the Chainlink ETH/USD price feed at address `0x13e3Ee699D1909E989722E753853AE30b17e08c5`.
 - **Function Used**: `getEthPrice()` fetches the latest price to convert USDC to ETH when an employee chooses to receive salary in ETH.
+- **Function Description**:
+  - **`getEthPrice()`**: Fetches the latest ETH price from the Chainlink oracle and returns it in 18 decimal format for consistency. This function includes error handling to ensure a valid price is always returned.
 
 ### Uniswap AMM Integration
 - The contract uses Uniswap's swap router (`0xE592427A0AEce92De3Edee1F18E0157C05861564`) to convert USDC to ETH.
 - **Function Used**: `swapUSDCtoETH(uint256 usdcAmount)` swaps a specified amount of USDC to ETH.
+- **Function Description**:
+  - **`swapUSDCtoETH(uint256 usdcAmount)`**: Uses the Uniswap Router to swap USDC for ETH. The function takes care of converting USDC to ETH, considering a 2% slippage tolerance, and unwraps WETH to obtain ETH.
 - **Slippage Protection**: The swap includes a minimum amount of ETH expected, set to be at least 98% of the calculated value to prevent front-running and excessive slippage.
+
+## Additional Function Descriptions
+### `calculateSalary(address employee)`
+- **Purpose**: Calculates the total accrued salary for an employee.
+- **Logic**:
+  - If the employee is active, it calculates the salary accrued from the last updated time until the current time.
+  - If the employee is terminated, it only returns the unclaimed salary.
+  - The function considers weekly salary, time worked, and unclaimed salary.
+  - Returns the calculated salary in 18 decimals for consistency.
 
 ## Security Features
 - **Role-based Access Control**: Uses modifiers like `onlyHRManager` and `onlyEmployee` to restrict access to critical functions.
@@ -85,3 +98,6 @@ The `HumanResources` contract provides a human resources payment system where em
 
 ## Summary
 The `HumanResources` contract provides a complete HR payment solution on Optimism, enabling role-based access, flexible salary withdrawal in multiple currencies, and secure interaction with external DeFi protocols for swapping and price feeds. The integration with Chainlink ensures accurate pricing, and Uniswap allows seamless conversion of USDC to ETH, while security is maintained using OpenZeppelin's `ReentrancyGuard` and proper access control mechanisms.
+
+The contract ensures that the key components like salary calculation, Oracle integration, and AMM integration are implemented with robust security and quality standards.
+
