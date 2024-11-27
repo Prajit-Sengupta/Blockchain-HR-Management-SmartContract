@@ -10,6 +10,12 @@ The `HumanResources` contract provides a human resources payment system where em
 - **AMM Integration**: Uses Uniswap to convert USDC to ETH when an employee opts to receive their salary in ETH.
 - **Reentrancy Protection**: Withdrawals are protected against reentrancy attacks using OpenZeppelin's `ReentrancyGuard`.
 
+## Assumptions
+For the purpose of this coursework, we assume that **1 USD = 1 USDC**.
+
+## Default Currency
+- By default, the salary is paid in **USDC** unless the employee explicitly switches their preference to ETH.
+
 ## Functions Implemented from `IHumanResources`
 ### 1. `registerEmployee(address employee, uint256 weeklyUsdSalary)`
 - **Purpose**: Registers an employee with a specified weekly salary.
@@ -61,6 +67,8 @@ The `HumanResources` contract provides a human resources payment system where em
 ### 8. `hrManager()`
 - **Purpose**: Returns the address of the HR manager.
 - **Access Control**: View function accessible to anyone.
+- **Logic**: 
+  - The `hrManagerAddr` is the address of the HR Manager set during contract deployment.
 
 ### 9. `getCurrencyPreference(address employee)`
 - **Purpose**: Returns the preferred currency of the specified employee (USDC or ETH).
@@ -81,6 +89,9 @@ The `HumanResources` contract provides a human resources payment system where em
 - **Function Description**:
   - **`swapUSDCtoETH(uint256 usdcAmount)`**: Uses the Uniswap Router to swap USDC for ETH. The function takes care of converting USDC to ETH, considering a 2% slippage tolerance, and unwraps WETH to obtain ETH.
 - **Slippage Protection**: The swap includes a minimum amount of ETH expected, set to be at least 98% of the calculated value to prevent front-running and excessive slippage.
+
+### Why Use IWETH?
+- The Uniswap swap provides WETH (Wrapped ETH) instead of direct ETH. To ensure that employees receive native ETH when they request it, the contract uses `IWETH` to unwrap WETH into ETH. This allows for easier and more consistent interactions when paying employees who opt for ETH.
 
 ## Additional Function Descriptions
 ### `calculateSalary(address employee)`
