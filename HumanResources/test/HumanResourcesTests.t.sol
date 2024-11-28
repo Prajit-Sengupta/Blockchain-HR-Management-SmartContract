@@ -38,8 +38,8 @@ contract HumanResourcesTest is Test {
     uint256 public aliceSalary = 2100e18;
     uint256 public bobSalary = 700e18;
 
-    address public charlie = makeAddr("charlie");
-    uint256 public charlieSalary = 1500e18;
+    address public william = makeAddr("william");
+    uint256 public williamSalary = 1700e18;
 
     uint256 ethPrice;
 
@@ -190,19 +190,33 @@ contract HumanResourcesTest is Test {
             .checked_write(amount_);
 
     }
-    
-    function test_hrManager_immutable() public {
+
+
+    function test_hrManager() public {
         address currentHrManager = humanResources.hrManager();
         assertEq(currentHrManager, hrManager);
         vm.expectRevert(IHumanResources.NotAuthorized.selector);
         vm.prank(bob);
-        humanResources.registerEmployee(charlie, charlieSalary);
+        humanResources.registerEmployee(william, williamSalary);
     }
 
     function test_terminateEmployee_notRegistered() public {
         vm.expectRevert(IHumanResources.EmployeeNotRegistered.selector);
         vm.prank(hrManager);
-        humanResources.terminateEmployee(charlie);
+        humanResources.terminateEmployee(william);
+    }
+
+    function test_notAuthorized_registerEmployee() public {
+        vm.expectRevert(IHumanResources.NotAuthorized.selector);
+        vm.prank(bob); 
+        humanResources.registerEmployee(william, williamSalary);
+    }
+
+    function test_notAuthorized_terminateEmployee() public {
+        _registerEmployee(alice, aliceSalary);
+        vm.expectRevert(IHumanResources.NotAuthorized.selector);
+        vm.prank(bob); 
+        humanResources.terminateEmployee(alice);
     }
 
     function test_terminateEmployee_twice() public {
@@ -214,21 +228,35 @@ contract HumanResourcesTest is Test {
         humanResources.terminateEmployee(alice);
     }
 
-    function test_switchCurrency() public {
-        _mintTokensFor(_USDC, address(humanResources), 10_000e6);
-        _registerEmployee(charlie, charlieSalary);
+   function test_salaryAccrual_yTermination() public {
+        _registerEmployee(alice, aliceSalary);
         skip(3 days);
-        vm.prank(charlie);
-        humanResources.switchCurrency();
-        (
-            uint256 weeklySalary,
-            uint256 employedSince,
-            uint256 terminatedAt
-        ) = humanResources.getEmployeeInfo(charlie);
-        assertEq(weeklySalary, charlieSalary);
-        assertEq(terminatedAt, 0);
-        assertTrue(humanResources.getCurrencyPreference(charlie), "Currency should be ETH");
+        vm.prank(hrManager);
+        humanResources.terminateEmployee(alice);
+        uint256 expectedUnclaimedSalary = (aliceSalary * 3) / 7;
+        assertEq(humanResources.salaryAvailable(alice), expectedUnclaimedSalary / 1e12);
     }
+
+    function test_switchCurrency() public {
+    _mintTokensFor(_USDC, address(humanResources), 10_000e6);
+    _registerEmployee(william, williamSalary);
+    skip(3 days);
+
+    vm.expectEmit(true, true, true, true);
+    emit IHumanResources.SalaryWithdrawn(william, false, ((williamSalary / 1e12) * 3) / 7); // Expect USDC withdrawal
+
+    vm.expectEmit(true, true, true, true);
+    emit IHumanResources.CurrencySwitched(william, true); // Expect currency switch to ETH
+
+    vm.prank(william);
+    humanResources.switchCurrency();
+
+    // Verify employee details
+    (uint256 weeklySalary, , uint256 terminatedAt) = humanResources.getEmployeeInfo(william);
+    assertEq(weeklySalary, williamSalary);
+    assertEq(terminatedAt, 0);
+    assertTrue(humanResources.getCurrencyPreferenceinfo(william), "Currency should be ETH");
+}
 
     function test_getActiveEmployeeCount() public {
         assertEq(humanResources.getActiveEmployeeCount(), 0);
@@ -236,6 +264,19 @@ contract HumanResourcesTest is Test {
         assertEq(humanResources.getActiveEmployeeCount(), 1);
         _registerEmployee(bob, bobSalary);
         assertEq(humanResources.getActiveEmployeeCount(), 2);
+    }
+    
+    function test_withdrawSalary_insufficientUSDC_forETH() public {
+        // Register and set preference to ETH
+        _registerEmployee(alice, aliceSalary);
+        vm.prank(alice);
+        humanResources.switchCurrency();
+        skip(2 days);
+        // With only 100 USDC available, withdrawal should revert.
+        _mintTokensFor(_USDC, address(humanResources), 100e6);
+        vm.prank(alice);
+        vm.expectRevert("Insufficient USDC balance for swap");
+        humanResources.withdrawSalary();
     }
 
     function test_getEmployeeInfo() public {
@@ -245,19 +286,5 @@ contract HumanResourcesTest is Test {
         assertGt(employedSince, 0);
         assertEq(terminatedAt, 0);
     }
-
-    function test_notAuthorized_registerEmployee() public {
-        vm.expectRevert(IHumanResources.NotAuthorized.selector);
-        vm.prank(bob); 
-        humanResources.registerEmployee(charlie, charlieSalary);
-    }
-
-    function test_notAuthorized_terminateEmployee() public {
-        _registerEmployee(alice, aliceSalary);
-        vm.expectRevert(IHumanResources.NotAuthorized.selector);
-        vm.prank(bob); 
-        humanResources.terminateEmployee(alice);
-    }
-
 
 }

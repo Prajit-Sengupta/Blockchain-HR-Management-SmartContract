@@ -1,20 +1,21 @@
 # HumanResources Contract Documentation
 
 ## Overview
-The `HumanResources` contract provides a human resources payment system where employees can be registered, terminated, and paid in either USDC or ETH based on their preference. The HR manager, specified upon contract deployment, is responsible for managing employees. This contract is designed to be deployed on the Optimism network and uses Chainlink oracles for fetching ETH/USD prices and Uniswap AMM for converting USDC to ETH.
+The `HumanResources` contract provides a human resources payment management system where employees can be registered, terminated, and can be paid according to their preference (ETH or USDC). Upon contract deployment the HR Manager gets specified (By the Constructor in our code) which controls the system. This contract is designed to be deployed on the Optimism network and uses Chainlink oracles for fetching real-time ETH/USD prices and Uniswap AMM for converting USDC to ETH.
 
-### Key Functionalities
-- **Role Management**: Only the HR manager can register or terminate employees.
+## Assumptions
+- For the purpose of this coursework, we assume that **1 USD = 1 USDC**.
+- By default, the salary is paid in **USDC** unless the employee explicitly switches their preference to ETH.
+
+### IWETH.sol File
+- The Uniswap swap provides WETH (Wrapped ETH) instead of direct ETH. To ensure that employees receive native ETH when they request it, the contract uses `IWETH` to unwrap WETH into ETH.
+
+### Key Points
+- **Role Management**: Only the HR manager can register or terminate employees. Also switchcurreny can be accessed by Active employees only.
 - **Salary Payments**: Employees can withdraw accumulated salaries in USDC or ETH based on their preference.
 - **Oracle Integration**: The contract uses Chainlink to fetch the latest ETH/USD price.
 - **AMM Integration**: Uses Uniswap to convert USDC to ETH when an employee opts to receive their salary in ETH.
-- **Reentrancy Protection**: Withdrawals are protected against reentrancy attacks using OpenZeppelin's `ReentrancyGuard`.
-
-## Assumptions
-For the purpose of this coursework, we assume that **1 USD = 1 USDC**.
-
-## Default Currency
-- By default, the salary is paid in **USDC** unless the employee explicitly switches their preference to ETH.
+- **Reentrancy Protection**: Withdrawals are protected against reentrancy attacks using OpenZeppelin's `ReentrancyGuard` functionality.
 
 ## Functions Implemented from `IHumanResources`
 ### 1. `registerEmployee(address employee, uint256 weeklyUsdSalary)`
@@ -58,7 +59,7 @@ For the purpose of this coursework, we assume that **1 USD = 1 USDC**.
 - **Purpose**: Provides information about an employee's salary, registration, and termination status.
 - **Access Control**: View function accessible to anyone.
 - **Logic**:
-  - Returns weekly salary, registration timestamp, and termination timestamp (if applicable).
+  - Returns weekly salary, registration timestamp, and termination timestamp.
 
 ### 7. `getActiveEmployeeCount()`
 - **Purpose**: Returns the number of active employees in the system.
@@ -66,15 +67,8 @@ For the purpose of this coursework, we assume that **1 USD = 1 USDC**.
 
 ### 8. `hrManager()`
 - **Purpose**: Returns the address of the HR manager.
-- **Access Control**: View function accessible to anyone.
 - **Logic**: 
   - The `hrManagerAddr` is the address of the HR Manager set during contract deployment.
-
-### 9. `getCurrencyPreference(address employee)`
-- **Purpose**: Returns the preferred currency of the specified employee (USDC or ETH).
-- **Access Control**: View function accessible to anyone.
-- **Logic**:
-  - Checks if the employee is registered and returns their preferred currency.
 
 ## Integration with AMM and Oracle
 ### Chainlink Oracle Integration
@@ -90,23 +84,25 @@ For the purpose of this coursework, we assume that **1 USD = 1 USDC**.
   - **`swapUSDCtoETH(uint256 usdcAmount)`**: Uses the Uniswap Router to swap USDC for ETH. The function takes care of converting USDC to ETH, considering a 2% slippage tolerance, and unwraps WETH to obtain ETH.
 - **Slippage Protection**: The swap includes a minimum amount of ETH expected, set to be at least 98% of the calculated value to prevent front-running and excessive slippage.
 
-### IWETH
-- The Uniswap swap provides WETH (Wrapped ETH) instead of direct ETH. To ensure that employees receive native ETH when they request it, the contract uses `IWETH` to unwrap WETH into ETH. This allows for easier and more consistent interactions when paying employees who opt for ETH.
+## Additional Functions
+###  `getCurrencyPreferenceinfo(address employee)`
+- **Purpose**: Returns the preferred currency of the specified employee (USDC or ETH).
+- **Access Control**: View function accessible to anyone.
+- **Logic**:
+  - Checks if the employee is registered and returns their preferred currency.
 
-## Additional Function Descriptions
 ### `calculateSalary(address employee)`
 - **Purpose**: Calculates the total accrued salary for an employee.
 - **Logic**:
   - If the employee is active, it calculates the salary accrued from the last updated time until the current time.
   - If the employee is terminated, it only returns the unclaimed salary.
   - The function considers weekly salary, time worked, and unclaimed salary.
-  - Returns the calculated salary in 18 decimals for consistency.
+  - Also, it returns the calculated salary in 18 decimals for consistency.
 
-## Security Features
+## Security Integration
 - **Role-based Access Control**: Uses modifiers like `onlyHRManager` and `onlyEmployee` to restrict access to critical functions.
 - **ReentrancyGuard**: The `withdrawSalary()` function is protected with `nonReentrant` to prevent reentrancy attacks.
-- **ETH Transfers**: Uses safe methods for ETH transfers to prevent reentrancy.
+- **ETH Transfers**: Uses safe methods for ETH transfers.
 
-## Summary
-The `HumanResources` contract provides a complete HR payment solution on Optimism, enabling role-based access, flexible salary withdrawal in multiple currencies, and secure interaction with external DeFi protocols for swapping and price feeds. The integration with Chainlink ensures accurate pricing, and Uniswap allows seamless conversion of USDC to ETH, while security is maintained using OpenZeppelin's `ReentrancyGuard` and proper access control mechanisms.
+
 
